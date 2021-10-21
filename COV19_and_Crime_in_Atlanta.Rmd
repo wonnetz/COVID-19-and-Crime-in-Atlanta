@@ -1,0 +1,285 @@
+---
+title: "COVID-19 and Crime in Atlanta"
+author: "Wonnetz Phanthavong"
+date: "10/17/2021"
+output:
+  prettydoc::html_pretty:
+    toc: yes
+    number_sections: yes
+    theme: tactile
+    df_print: paged
+  html_document:
+    toc: yes
+    df_print: paged
+  pdf_document: default
+---
+<center>
+  <font size="+2">
+    Hello!  
+    My name is Wonnetz Phanthavong and I'm an aspiring analyst residing in Atlanta, GA.  
+  </font>
+</center>   
+   
+   
+   
+<center>
+![Image](https://cdn.americanprogress.org/content/uploads/2020/04/29131005/GettyImages-1210839956.jpg)
+</center>
+
+[Back to the Homepage](https://wonnetz.github.io/my-website/)
+
+# Motivation  
+I recently completed the [Google Data Analytics certificate](https://www.credly.com/badges/beba2698-ca1d-4950-b91a-b0c2acc8a474?source=linked_in_profile) and was looking to put my skills to the test. So why not see how COVID-19 has impacted crime in Atlanta?  
+The pandemic has affected a great many lives around the world. Of course, this includes the city that I live in. What I will be exploring here is the impact that COVID-19 has/had on the total crime in Atlanta, GA. What correlations, if any, exist between these data sets? What will I be able to learn from this analysis? What areas could be explored more in the future? Find out at the conclusion of this document!  
+
+[Click here if you want to immediately see the results!](https://wonnetz.github.io/my-website/COV19_and_Crime_in_Atlanta.html#conclusion)
+
+# Setting Up my Environment  
+The data we're using can be found on the [Atlanta Police Department website](https://www.atlantapd.org/i-want-to/crime-data-downloads) and the [Fulton County Epidemiology Reports](https://www.fultoncountyga.gov/covid-19/epidemiology-reports).  
+
+For the Fulton County Epidemiology Reports, the World Health Organization (WHO) officially declared COVID-19 a pandemic and thus, the COVID-19 data begins in March 2020.  
+
+Lets start loading our packages and data sets that we will be using!
+
+```{r loading packages and data, message=FALSE, warning=FALSE}
+library("tidyverse") # Standard Data Analysis Package
+library("lubridate") # Standard Date Package
+library("readr") # Standard Package to read files
+library("prettydoc") # Nice looking themes for the document
+library("ggthemes") # Nice looking themes for the plot
+
+# The Data!
+COBRA_2009_2019 <- read.csv("COBRA-2009-2019.csv")
+COBRA_2020_OLD <- read.csv("COBRA-2020(OLD RMS).csv")
+COBRA_2020 <- read.csv("COBRA-2020(NEW RMS).csv")
+COBRA_2021 <- read.csv("COBRA-2021.csv")
+COV19 <- read.csv("COV19 Cases in Atlanta.csv")
+```
+
+
+# Previewing the Data  
+To thoroughly conduct our analysis, it would be wise to combine all of our data into a single data frame and for us to clean it from there.  
+
+First lets see what we can glimpse from the data. This will be able to tell us how we should proceed.
+
+```{r structure of data pt. 1, paged.print=TRUE}
+head(COBRA_2009_2019)
+```
+
+
+```{r structure of data pt. 2, eval=FALSE, paged.print=TRUE}
+head(COBRA_2020_OLD)
+head(COBRA_2020)
+head(COBRA_2021)
+```
+
+```{r structure of data pt. 3, paged.print=TRUE}
+head(COV19)
+```
+
+
+Note: I decided to only display the 2009-2019 COBRA data set and the COVID-19 data set as to not clutter the document.  
+  
+It seems that all 4 data frames have a case identification number, date of occurrence, neighborhood, and type of crime. These are the attributes that I'd like to join our tables on! Unfortunately, the data frames vary in both name, data type, and there may also be some overlaps in the data. We'll have to clean these up before we join the data together.
+
+# Cleaning the Atlanta PD Data
+
+```{r standardizing the offense_ids, echo=T, warning=FALSE, results=TRUE}
+# This renames the case numbers
+names(COBRA_2009_2019)[names(COBRA_2009_2019) == "Report.Number"] <- "offense_id"
+names(COBRA_2020)[names(COBRA_2020) == "ï..offense_id"] <- "offense_id"
+
+# This renames the column names for date of occurrence and the type of crimes
+names(COBRA_2009_2019)[names(COBRA_2009_2019) == "Occur.Date"] <- "occur_date"
+names(COBRA_2009_2019)[names(COBRA_2009_2019) == "UCR.Literal"] <- "UC2_Literal"
+names(COBRA_2009_2019)[names(COBRA_2009_2019) == "Neighborhood"] <- "neighborhood"
+
+# Converts this column from a double to an integer
+COBRA_2009_2019$offense_id <- as.numeric(COBRA_2009_2019$offense_id)
+
+# Converts the strings in the "occur_date" column into Date data types
+COBRA_2009_2019 <- COBRA_2009_2019 %>% transform(occur_date = ymd(occur_date))
+COBRA_2020_OLD <- COBRA_2020_OLD %>%transform(occur_date = mdy(occur_date))
+COBRA_2020 <- COBRA_2020 %>% transform(occur_date = mdy(occur_date))
+COBRA_2021 <- COBRA_2021 %>% transform(occur_date = mdy(occur_date))
+```
+
+Now that the attributes we want have been standardized, lets filter out the columns that we don't plan to use.
+
+```{r filters the COBRA data}
+# Filters the Atlanta PD Data Sets
+COBRA_2009_2019 <- COBRA_2009_2019 %>% select(c("offense_id", "occur_date", "UC2_Literal", "neighborhood"))
+COBRA_2020_OLD <- COBRA_2020_OLD %>% select(c("offense_id", "occur_date", "UC2_Literal", "neighborhood"))
+COBRA_2020 <- COBRA_2020 %>% select(c("offense_id", "occur_date", "UC2_Literal", "neighborhood"))
+COBRA_2021 <- COBRA_2021 %>% select(c("offense_id", "occur_date", "UC2_Literal", "neighborhood"))
+```
+
+Now we can merge all of the Atlanta PD data into one file!  
+Note: As with any process, it's always a good idea to make sure that duplicates and "NA" values are removed from the data set, which is why we used the distinct() and na.omit() functions.  
+
+```{r the joining begins}
+# Merges the Atlanta PD data sets together
+COBRA <- merge(COBRA_2009_2019, COBRA_2020_OLD, all = TRUE) %>% 
+  merge(COBRA_2020, all = TRUE) %>% 
+  merge(COBRA_2021, all = TRUE) %>% 
+  distinct() %>% na.omit()
+COBRA <- COBRA %>% filter(occur_date > as.Date("2016-12-31") & occur_date < as.Date("2021-09-1"))
+head(COBRA)
+```
+
+Now that we have cleaned the Atlanta PD data set, lets put it into a format that will make it easier to analyze. We can do this by grouping the COBRA data by year and month to make it easier to view overall trends.  
+
+```{r splitting into months and years so we can aggregate the data, message=FALSE, warning=FALSE}
+# Formatting the data for analysis and assigning it to a dummy dataframe, called "test".
+COBRA <- COBRA %>% mutate(month = strftime(COBRA$occur_date, "%m"))
+COBRA <- COBRA %>% mutate(year = strftime(COBRA$occur_date, "%Y"))
+test <- COBRA %>% group_by(year, month) %>% count(UC2_Literal)
+test <- test %>% group_by(year, month) %>% summarise(sum(n))
+test <- test %>% mutate(day = "01")
+test <- test %>% unite(Date, year, month, day, sep = "-")
+names(test)[names(test) == "sum(n)"] <- "Total Crime"
+test <- test %>% transform(Date = as.Date(Date))
+```
+# Cleaning the COV19 Data
+
+Since I personally scraped this data from the Fulton County Epidemiology Reports, [here](https://www.fultoncountyga.gov/covid-19/epidemiology-reports), this data set will be a lot easier to clean.  
+As with the COBRA data set, lets change the column names and format the data types.  
+
+```{r fixing the column data, warning=FALSE, message=FALSE}
+# Converts the Date column to the Date data type and standardizes them to the first day of the month
+COV19 <- COV19 %>% transform(Date = mdy(Date))
+day(COV19$Date) <- 1
+
+# Changes the names of the columns to have them be more readable and converts them to be numerical values
+colnames(COV19) <- c("Date", "Cumulative Diagnosis Rate", "Total Cases")
+COV19$`Cumulative Diagnosis Rate` <- gsub(",", "", COV19$`Cumulative Diagnosis Rate`) %>% as.numeric()
+COV19$`Total Cases` <- gsub(",", "", COV19$`Total Cases`) %>% as.numeric()
+
+# Filters out the month of September 2021 since we don't have full crime data for this month
+COV19 <- COV19 %>% filter(Date != as.Date("2021-09-01"))
+```
+
+Now we will merge the summarized COBRA data and the cleaned COV19 data into one dataframe.  
+
+```{r merging our data sets together for the analysis}
+# Combines the filtered "test" data set and COV19 data set for easier visualization and analysis 
+df <- merge(test, COV19, all = TRUE)
+```
+
+# Creating the Plot
+We'll use ggplot2 to create the plot, because it has a lot of handy built in functions. It allows us to easily create line graphs, alter labels, and to annotate our plot.  
+
+```{r exploration time, message = FALSE, warning=FALSE}
+# Creation of the initial plot, no annotations.
+coeff <- 35
+plot <- df %>% ggplot(aes(x = Date)) +
+  # Graphs two different lines
+  geom_line(aes(y = `Total.Crime`, color = "blue"), size = 2, alpha = .8) +
+  geom_line(aes(y = (`Total Cases`/ coeff), color = "red"), size = 2, alpha = .8) + 
+  ylim(0, 3500) +
+  # Labels both the y-axis
+  scale_y_continuous(
+    name = "Total Crime per month",
+    sec.axis = sec_axis(~.*coeff, name = "Total Cases of COV19")
+  ) +
+  # Customizes the x-axis
+  scale_x_date(
+    date_breaks = "1 year", 
+    date_labels = "%Y"
+  ) + 
+  # Standard Labels
+  labs(title = "Crime in Atlanta per month vs. Total Cases of COVID-19 from 2017 to 2021", 
+       subtitle = "(per 100,000 of the population)", 
+       color = "Legend", 
+       caption = "Data from Atlanta PD and Fulton County Epidemiology Reports"
+  )  +
+  # Establishes the Legend
+  scale_color_manual(labels = c("Total Crime per month", "Total Cases of COV19"), values = c("#006391", "#bc5090")) +
+  # Custom Theme
+  theme_fivethirtyeight() + 
+  theme(
+        axis.text.x = element_text(angle = 45, hjust = 1, family = "sans", size = 10), 
+        axis.title.x = element_blank(),
+        axis.title = element_text(family = "sans", face = "bold", size = 14),
+        legend.key.size = unit(1.5, "cm"),
+        legend.text = element_text(size = 10),
+        plot.title = element_text(size = 20)
+        ) 
+```
+
+Lets add some more information and color to our plot!  
+
+```{r annotation layer}
+# Addded the arrows, lines, extra points, and other annotations to the plot
+plot <- plot +
+  # Horizontal Line to show Peak Crime and Peak Low
+  geom_hline(yintercept = 2463, linetype = 2, size =  1.2, colour = "#ffa600") +
+  geom_hline(yintercept = 1081, linetype = 2, size = 1.2, colour = "#ffa600") +
+  # Adds a Curved Arrow
+  # geom_curve(
+  # No trough version
+  # x = as.numeric(as.Date("2018-04-01")), y = 1050, xend = as.numeric(as.Date("2020-03-01")), yend = 35,
+  # Trough version
+  #  x = as.numeric(as.Date("2018-04-01")), y = 550, xend = as.numeric(as.Date("2020-03-01")), yend = 35,
+  #  arrow = arrow(
+  #  length = unit(0.03, "npc"),
+  #              type="closed" # Describes arrow head (open or closed)
+  #  ),
+  #  colour = "#ffa600",
+  #  size = 1.2,
+  #  angle = 0) +
+  # Annotation
+  # geom_text(aes(family = "sans"),
+  #          # No Trough Version
+  #          # x = as.numeric(as.Date("2018-04-01")), y = 1200,
+  #          x = as.numeric(as.Date("2018-04-01")), y = 700,
+  #          label = "World Health Organization (WHO) \n declares COVID-19 as a global pandemic.",
+  #          colour = "#ffa600", size = 6) +
+  # WHO Point
+  # geom_point(x = as.Date("2020-04-01"), y = 40,
+  #           colour = "#ffa600", size = 6) +
+
+  # Peak Crime Text
+  geom_text(aes(family = "sans"),
+            x = as.numeric(as.Date("2019-03-01")), y = 2650,
+            label = "Record Highs",
+            colour = "#ffa600", size = 6) +
+  # Peak Crime Point
+  geom_point(x = as.Date("2017-10-01"), y = 2485,
+             colour = "#ffa600", size = 6) +
+  # Peak Crime Point
+  geom_point(x = as.Date("2020-11-20"), y = 2463,
+             colour = "#ffa600", size = 6) +
+  # Trough Crime Text
+  geom_text(aes(family = "sans"),
+            x = as.numeric(as.Date("2019-03-01")), y = 1200,
+            label = "Record Lows",
+            colour = "#ffa600", size = 6) +
+  # Trough Crime Point
+  geom_point(x = as.Date("2020-04-01"), y = 1081,
+             colour = "#ffa600", size = 6) +
+  theme(text = element_text(family = "sans"))
+```
+
+Lets look at our plot, the final product!
+
+# Conclusion
+
+```{r plot, echo=FALSE, fig.height=9, fig.width=12, warning=FALSE, dev='jpeg'}
+plot
+```
+
+Looking at only the Total Crime in Atlanta per month, we see that over the past 4 years it has fluctuated quite consistently. There is a steady drop off in crime at the start of the year, followed by a rebound in crime after March and April.  
+
+The months surrounding COVID-19 have drastically altered the Crime in Atlanta. I found that there was a 41% decrease in crime in April 2019 compared to April 2020 and that there was a marginal increase of 8% in crime in December 2019 compared to December 2020. 
+
+# Further Areas to Explore  
+There are still plenty of questions to explore with this data set and viz. What particular crime increased or decreased around the pandemic? In what neighborhoods of Atlanta did we find this increase/decrease? What other factors/variables could we consider in the future?  
+
+These are areas that I may come back to in the future, but for now I feel that I want to dabble into other areas. If you've made it this far, thank you for reading! If you have any questions or comments, then feel free to reach out to me. 
+
+
+[Back to the Homepage](https://wonnetz.github.io/my-website/)
+
+
+
